@@ -1,9 +1,16 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { CreateUserDto } from './dto/create.user.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 import { HashingService } from 'src/common/hashing/hashing.service';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { NotFoundError } from 'rxjs';
 
 @Injectable()
 export class UserService {
@@ -13,16 +20,28 @@ export class UserService {
     private readonly hashingService: HashingService,
   ) {}
 
-  async create(dto: CreateUserDto) {
-    const exists = await this.userRepository.exists({
-      where: {
-        email: dto.email,
-      },
+  async failIfEmailExists(email: string) {
+    const exists = await this.userRepository.existsBy({
+      email,
     });
 
     if (exists) {
       throw new ConflictException('This email already exists.');
     }
+  }
+
+  async findByOrFail(userData: Partial<User>) {
+    const user = await this.userRepository.findOneBy(userData);
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    return user;
+  }
+
+  async create(dto: CreateUserDto) {
+    await this.failIfEmailExists(dto.email);
 
     const hashedPassword = await this.hashingService.hash(dto.password);
 
@@ -51,5 +70,24 @@ export class UserService {
 
   save(user: User) {
     return this.userRepository.save(user);
+  }
+
+  async update(id: string, dto: UpdateUserDto) {
+    if (!dto.name && !dto.email) {
+      throw new BadRequestException('Data not sent.');
+    }
+
+    const user = await this.findByOrFail({ id });
+
+    user.name = dto.name ?? user.name;
+
+    if (dto.email && dto.email !== user.email) {
+      await this.failIfEmailExists(dto.email);
+      user.email = dto.email;
+
+      user.forceLogout = true;
+    }
+
+    return this.save(user);
   }
 }
