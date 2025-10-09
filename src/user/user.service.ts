@@ -110,4 +110,10 @@ export class UserService {
 
     return this.save(user);
   }
+
+  async remove(id: string) {
+    const user = await this.findByOrFail({ id });
+    await this.userRepository.delete({ id });
+    return user;
+  }
 }
